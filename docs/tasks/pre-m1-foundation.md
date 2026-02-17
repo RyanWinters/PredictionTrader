@@ -66,6 +66,7 @@ This task set creates a production-shaped layout so Milestone 1 implementation c
 - [ ] Define error code catalog and operator-visible messages.
 - [ ] Add local diagnostics bundle spec (logs + config metadata, secrets redacted).
 - [ ] Add reconnect and rate-limit test matrix (spec-only, no implementation yet).
+- Reference spec: [Observability and Reliability Baseline Spec](../observability-and-reliability-spec.md).
 
 ## F6. Packaging risk spike (do this early)
 
