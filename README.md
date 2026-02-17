@@ -2,6 +2,14 @@
 
 A desktop-first, low-cost Kalshi trading assistant built for solo development.
 
+## Repository layout
+
+- `apps/desktop`: Desktop client application and user-facing interface code.
+- `apps/engine`: Core trading engine, automation workflows, and backend services.
+- `packages/contracts`: Shared contracts (schemas/types/interfaces) used across apps.
+- `docs`: Project documentation, plans, and operational notes.
+- `docs/adr`: Architecture Decision Records (ADRs) for major technical choices.
+
 ## Project documentation
 
 - [Tech Stack, Risks, and Revised Milestones](docs/tech-stack-and-roadmap.md)
