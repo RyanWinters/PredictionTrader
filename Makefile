@@ -1,4 +1,4 @@
-.PHONY: format format-py format-ts lint lint-py lint-ts
+.PHONY: format format-py format-ts lint lint-py lint-ts generate-contracts
 
 format: format-py format-ts
 
@@ -20,3 +20,8 @@ lint-py:
 lint-ts:
 	@echo "Linting TypeScript with ESLint"
 	eslint . --ext .ts,.tsx,.js,.jsx
+
+
+generate-contracts:
+	@echo "Generating contract models (TypeScript + Python)"
+	cd packages/contracts && ./scripts/generate-models.sh
