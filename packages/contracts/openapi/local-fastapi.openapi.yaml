@@ -1,0 +1,257 @@
+openapi: 3.1.0
+info:
+  title: PredictionTrader Local FastAPI Contract
+  version: 1.0.0
+  description: >-
+    Contract for local FastAPI endpoints used by desktop and engine components.
+  x-compatibility-notes: >-
+    Additive request fields and response fields are considered backward-compatible in 1.x.
+    Path removals, response shape removals, and required field changes require a major version increment.
+servers:
+  - url: http://127.0.0.1:8000
+    description: Local development server
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Health check endpoint
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /orders:
+    post:
+      operationId: createOrder
+      summary: Submit an order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: Order accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrderResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /positions/{account_id}:
+    get:
+      operationId: getPositions
+      summary: Return all current positions for an account
+      parameters:
+        - in: path
+          name: account_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Positions retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PositionsResponse'
+  /risk/alerts:
+    get:
+      operationId: getRiskAlerts
+      summary: Return active risk alerts
+      parameters:
+        - in: query
+          name: account_id
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Risk alerts retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiskAlertsResponse'
+components:
+  schemas:
+    HealthResponse:
+      x-schema-version: 1.0.0
+      x-compatibility-notes: Additive fields only in 1.x.
+      type: object
+      additionalProperties: false
+      required: [status, service, timestamp]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        service:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+    CreateOrderRequest:
+      x-schema-version: 1.0.0
+      x-compatibility-notes: Optional fields may be added in minor versions.
+      type: object
+      additionalProperties: false
+      required: [account_id, market_id, side, price, quantity]
+      properties:
+        account_id:
+          type: string
+        market_id:
+          type: string
+        side:
+          type: string
+          enum: [buy_yes, sell_yes, buy_no, sell_no]
+        price:
+          type: integer
+          minimum: 1
+          maximum: 99
+        quantity:
+          type: integer
+          minimum: 1
+        client_order_id:
+          type: string
+    CreateOrderResponse:
+      x-schema-version: 1.0.0
+      x-compatibility-notes: Optional fields may be added in minor versions.
+      type: object
+      additionalProperties: false
+      required: [order]
+      properties:
+        order:
+          $ref: '#/components/schemas/OrderState'
+    PositionsResponse:
+      x-schema-version: 1.0.0
+      x-compatibility-notes: Optional fields may be added in minor versions.
+      type: object
+      additionalProperties: false
+      required: [positions]
+      properties:
+        positions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PositionState'
+    RiskAlertsResponse:
+      x-schema-version: 1.0.0
+      x-compatibility-notes: Optional fields may be added in minor versions.
+      type: object
+      additionalProperties: false
+      required: [alerts]
+      properties:
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/RiskAlert'
+    ErrorResponse:
+      x-schema-version: 1.0.0
+      x-compatibility-notes: Optional fields may be added in minor versions.
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+    OrderState:
+      x-schema-version: 1.0.0
+      x-compatibility-notes: Enum values may expand in minor versions.
+      type: object
+      additionalProperties: false
+      required:
+        [order_id, market_id, status, side, price, quantity, filled_quantity, updated_at]
+      properties:
+        order_id:
+          type: string
+        market_id:
+          type: string
+        status:
+          type: string
+          enum: [new, accepted, partially_filled, filled, cancelled, rejected, expired]
+        side:
+          type: string
+          enum: [buy_yes, sell_yes, buy_no, sell_no]
+        price:
+          type: integer
+          minimum: 1
+          maximum: 99
+        quantity:
+          type: integer
+          minimum: 1
+        filled_quantity:
+          type: integer
+          minimum: 0
+        updated_at:
+          type: string
+          format: date-time
+    PositionState:
+      x-schema-version: 1.0.0
+      x-compatibility-notes: Numeric fields are integer-based for deterministic serialization.
+      type: object
+      additionalProperties: false
+      required:
+        [account_id, market_id, yes_contracts, no_contracts, average_yes_price, average_no_price, unrealized_pnl_cents, realized_pnl_cents, updated_at]
+      properties:
+        account_id:
+          type: string
+        market_id:
+          type: string
+        yes_contracts:
+          type: integer
+          minimum: 0
+        no_contracts:
+          type: integer
+          minimum: 0
+        average_yes_price:
+          type: integer
+          minimum: 1
+          maximum: 99
+        average_no_price:
+          type: integer
+          minimum: 1
+          maximum: 99
+        unrealized_pnl_cents:
+          type: integer
+        realized_pnl_cents:
+          type: integer
+        updated_at:
+          type: string
+          format: date-time
+    RiskAlert:
+      x-schema-version: 1.0.0
+      x-compatibility-notes: Severity and category enums may expand in minor versions.
+      type: object
+      additionalProperties: false
+      required: [alert_id, account_id, severity, category, message, created_at]
+      properties:
+        alert_id:
+          type: string
+        account_id:
+          type: string
+        severity:
+          type: string
+          enum: [info, warning, critical]
+        category:
+          type: string
+          enum: [max_position, max_drawdown, order_rate, connectivity, margin]
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties:
+            oneOf:
+              - type: string
+              - type: number
+              - type: integer
+              - type: boolean
+        created_at:
+          type: string
+          format: date-time

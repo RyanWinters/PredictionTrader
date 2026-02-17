@@ -1,0 +1,310 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://predictiontrader.local/contracts/canonical-events.schema.json",
+  "title": "PredictionTrader Canonical Event Schemas",
+  "description": "Canonical event contracts for core trading domain messages.",
+  "type": "object",
+  "x-contract-metadata": {
+    "schema_version": "1.0.0",
+    "compatibility_notes": "Initial stable release. Additive field changes are backward-compatible within the 1.x line. Field removals/renames require a major version bump.",
+    "owners": [
+      "apps/engine",
+      "apps/desktop"
+    ]
+  },
+  "$defs": {
+    "orderbook_delta": {
+      "title": "orderbook_delta",
+      "type": "object",
+      "additionalProperties": false,
+      "x-schema-version": "1.0.0",
+      "x-compatibility-notes": "Supports additive optional fields only in minor versions.",
+      "required": [
+        "schema",
+        "market_id",
+        "sequence",
+        "timestamp",
+        "side",
+        "price",
+        "size_delta"
+      ],
+      "properties": {
+        "schema": {
+          "const": "orderbook_delta"
+        },
+        "market_id": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "yes",
+            "no"
+          ]
+        },
+        "price": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "size_delta": {
+          "type": "integer"
+        }
+      }
+    },
+    "trade": {
+      "title": "trade",
+      "type": "object",
+      "additionalProperties": false,
+      "x-schema-version": "1.0.0",
+      "x-compatibility-notes": "Trade execution fields are immutable after publication.",
+      "required": [
+        "schema",
+        "trade_id",
+        "market_id",
+        "timestamp",
+        "side",
+        "price",
+        "size",
+        "liquidity"
+      ],
+      "properties": {
+        "schema": {
+          "const": "trade"
+        },
+        "trade_id": {
+          "type": "string"
+        },
+        "market_id": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "buy_yes",
+            "sell_yes",
+            "buy_no",
+            "sell_no"
+          ]
+        },
+        "price": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "liquidity": {
+          "type": "string",
+          "enum": [
+            "maker",
+            "taker"
+          ]
+        }
+      }
+    },
+    "order_state": {
+      "title": "order_state",
+      "type": "object",
+      "additionalProperties": false,
+      "x-schema-version": "1.0.0",
+      "x-compatibility-notes": "Enum values may expand in minor versions; consumers must tolerate unknown values.",
+      "required": [
+        "schema",
+        "order_id",
+        "market_id",
+        "status",
+        "side",
+        "price",
+        "quantity",
+        "filled_quantity",
+        "updated_at"
+      ],
+      "properties": {
+        "schema": {
+          "const": "order_state"
+        },
+        "order_id": {
+          "type": "string"
+        },
+        "market_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "new",
+            "accepted",
+            "partially_filled",
+            "filled",
+            "cancelled",
+            "rejected",
+            "expired"
+          ]
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "buy_yes",
+            "sell_yes",
+            "buy_no",
+            "sell_no"
+          ]
+        },
+        "price": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "filled_quantity": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "position_state": {
+      "title": "position_state",
+      "type": "object",
+      "additionalProperties": false,
+      "x-schema-version": "1.0.0",
+      "x-compatibility-notes": "Numeric fields are represented as integers in cents/contracts for deterministic cross-language handling.",
+      "required": [
+        "schema",
+        "account_id",
+        "market_id",
+        "yes_contracts",
+        "no_contracts",
+        "average_yes_price",
+        "average_no_price",
+        "unrealized_pnl_cents",
+        "realized_pnl_cents",
+        "updated_at"
+      ],
+      "properties": {
+        "schema": {
+          "const": "position_state"
+        },
+        "account_id": {
+          "type": "string"
+        },
+        "market_id": {
+          "type": "string"
+        },
+        "yes_contracts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "no_contracts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "average_yes_price": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "average_no_price": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "unrealized_pnl_cents": {
+          "type": "integer"
+        },
+        "realized_pnl_cents": {
+          "type": "integer"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "risk_alert": {
+      "title": "risk_alert",
+      "type": "object",
+      "additionalProperties": false,
+      "x-schema-version": "1.0.0",
+      "x-compatibility-notes": "Severity and category enums may add values; clients should default unknown values to informational handling.",
+      "required": [
+        "schema",
+        "alert_id",
+        "account_id",
+        "severity",
+        "category",
+        "message",
+        "created_at"
+      ],
+      "properties": {
+        "schema": {
+          "const": "risk_alert"
+        },
+        "alert_id": {
+          "type": "string"
+        },
+        "account_id": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "info",
+            "warning",
+            "critical"
+          ]
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "max_position",
+            "max_drawdown",
+            "order_rate",
+            "connectivity",
+            "margin"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "integer",
+              "boolean"
+            ]
+          }
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}
