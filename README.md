@@ -14,6 +14,7 @@ A desktop-first, low-cost Kalshi trading assistant built for solo development.
 
 - [Tech Stack, Risks, and Revised Milestones](docs/tech-stack-and-roadmap.md)
 - [Pre-Milestone-1 Project Layout Tasks](docs/tasks/pre-m1-foundation.md)
+- [Observability and Reliability Baseline Spec](docs/observability-and-reliability-spec.md)
 
 ## Current focus
 
