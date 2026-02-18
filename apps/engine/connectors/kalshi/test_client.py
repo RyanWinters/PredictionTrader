@@ -4,32 +4,102 @@ import asyncio
 
 from connectors.kalshi.bus import InMemoryEventBus
 from connectors.kalshi.client import KalshiAuthSigner, KalshiClient, SimpleHttpSession
-from connectors.kalshi.config import KalshiConfig
+from connectors.kalshi.config import KalshiConfig, StreamReconnectConfig
 
 
 class DummySession(SimpleHttpSession):
     pass
 
 
-def _build_client(bus: InMemoryEventBus | None = None) -> KalshiClient:
+def _build_client(
+    bus: InMemoryEventBus | None = None,
+    reconnect_config: StreamReconnectConfig | None = None,
+) -> KalshiClient:
     return KalshiClient(
-        config=KalshiConfig(api_key_id="k", api_key_secret="s"),
+        config=KalshiConfig(
+            api_key_id="k",
+            api_key_secret="s",
+            stream_reconnect=reconnect_config or StreamReconnectConfig(),
+        ),
         auth_signer=KalshiAuthSigner(api_key_id="k", api_key_secret="s"),
         session=DummySession(),
         event_publisher=bus,
     )
 
 
-def test_stream_market_data_subscriptions() -> None:
-    client = _build_client()
+def test_stream_market_data_reconnect_orchestration() -> None:
+    client = _build_client(
+        reconnect_config=StreamReconnectConfig(
+            base_backoff_seconds=0.5,
+            max_backoff_seconds=1.0,
+            jitter_ratio=0.0,
+            degraded_after_attempts=1,
+            stable_connect_seconds=0.0,
+            max_retry_window_seconds=10.0,
+        )
+    )
 
-    async def _collect() -> list[dict[str, str]]:
-        return [message async for message in client.stream_market_data(["orderbook_delta", "trade", "foo"])]
+    async def _collect() -> list[dict[str, object]]:
+        stream = client.stream_market_data(["orderbook_delta", "trade", "foo"])
+        emitted: list[dict[str, object]] = []
+        emitted.append(await anext(stream))
+        emitted.append(await anext(stream))
+        emitted.append(await anext(stream))
+        emitted.append(await anext(stream))
+        emitted.append(await stream.asend({"clean": False, "reason": "connection reset"}))
+        emitted.append(await anext(stream))
+        emitted.append(await anext(stream))
+        emitted.append(await stream.asend({"stable_connect": True}))
+        await stream.aclose()
+        return emitted
 
     messages = asyncio.run(_collect())
 
-    assert [m["channel"] for m in messages] == ["orderbook_delta", "trade"]
-    assert all("handler" in m for m in messages)
+    assert messages[0]["type"] == "connect"
+    assert [messages[1]["channel"], messages[2]["channel"]] == ["orderbook_delta", "trade"]
+    assert messages[3] == {"type": "await_disconnect"}
+    assert messages[4] == {
+        "type": "health_state",
+        "state": "degraded",
+        "reason": "repeated_disconnects",
+        "attempt": 1,
+    }
+    assert messages[5]["type"] == "reconnect_scheduled"
+    assert messages[5]["attempt"] == 1
+    assert messages[5]["backoff_seconds"] == 0.5
+    assert messages[6] == {"type": "sleep", "seconds": 0.5}
+    assert messages[7] == {
+        "type": "health_state",
+        "state": "healthy",
+        "reason": "stable_connection_restored",
+        "attempt": 0,
+    }
+
+
+def test_stream_market_data_auth_failure_enters_degraded_and_stops() -> None:
+    client = _build_client()
+
+    async def _collect() -> list[dict[str, object]]:
+        stream = client.stream_market_data(["trade"])
+        emitted: list[dict[str, object]] = []
+        emitted.append(await anext(stream))
+        emitted.append(await anext(stream))
+        emitted.append(await anext(stream))
+        emitted.append(await stream.asend({"status_code": 401, "reason": "auth expired"}))
+        try:
+            await anext(stream)
+        except StopAsyncIteration:
+            pass
+        return emitted
+
+    messages = asyncio.run(_collect())
+
+    assert messages[3] == {
+        "type": "health_state",
+        "state": "degraded",
+        "reason": "auth_failure",
+        "attempt": 1,
+    }
 
 
 def test_process_orderbook_delta_publishes_envelope() -> None:

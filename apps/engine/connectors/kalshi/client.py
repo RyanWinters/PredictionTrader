@@ -7,10 +7,12 @@ import hashlib
 import hmac
 import json
 import logging
+import random
 import time
 from datetime import UTC, datetime
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
@@ -21,6 +23,21 @@ from .errors import ConnectorErrorCode, map_kalshi_error
 from .interfaces import AccountReadClient, EventPublisher, MarketDataStream, OrderExecutionClient
 
 logger = logging.getLogger(__name__)
+
+
+class StreamHealthState(str, Enum):
+    """Operator-facing connectivity state for the market data stream."""
+
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+
+
+class StreamCloseType(str, Enum):
+    """Classification of stream disconnects."""
+
+    CLEAN = "clean"
+    TRANSIENT_FAILURE = "transient_failure"
+    AUTH_FAILURE = "auth_failure"
 
 
 class KalshiAuthSigner:
@@ -151,39 +168,171 @@ class KalshiClient(MarketDataStream, OrderExecutionClient, AccountReadClient):
         return self._request("GET", "/portfolio/positions")
 
     async def stream_market_data(self, channels: list[str]) -> AsyncIterator[dict[str, Any]]:
-        """Yield websocket envelopes.
-
-        This method intentionally returns no messages by default; runtime applications can
-        wrap this client and connect their websocket implementation while still relying on
-        shared signing/auth setup.
-        """
+        """Yield websocket control envelopes with reconnect orchestration metadata."""
 
         ws_path = "/marketdata/stream"
         headers = self._auth_signer.signed_headers(method="GET", path=ws_path)
-        logger.info(
-            "kalshi_market_data_connect",
-            extra={"event": "connect", "url": self._config.websocket_url, "channels": channels},
-        )
+        subscribed_channels = [channel for channel in channels if self._is_supported_channel(channel)]
 
-        for channel in channels:
-            if channel not in self.SUPPORTED_MARKET_DATA_CHANNELS:
-                logger.warning(
-                    "kalshi_market_data_unsupported_channel",
-                    extra={"event": "subscribe", "channel": channel},
-                )
-                continue
+        retry_started_at: float | None = None
+        consecutive_failures = 0
+        health_state = StreamHealthState.HEALTHY
 
+        while True:
             logger.info(
-                "kalshi_market_data_subscribe",
-                extra={"event": "subscribe", "channel": channel},
+                "kalshi_market_data_connect",
+                extra={"event": "connect", "url": self._config.websocket_url, "channels": subscribed_channels},
             )
             yield {
-                "type": "subscribe",
-                "channel": channel,
-                "headers": headers,
+                "type": "connect",
                 "url": self._config.websocket_url,
-                "handler": f"handle_{channel}",
+                "headers": headers,
             }
+
+            for channel in subscribed_channels:
+                logger.info(
+                    "kalshi_market_data_subscribe",
+                    extra={"event": "subscribe", "channel": channel},
+                )
+                yield {
+                    "type": "subscribe",
+                    "channel": channel,
+                    "headers": headers,
+                    "url": self._config.websocket_url,
+                    "handler": f"handle_{channel}",
+                    "resubscribe": True,
+                }
+
+            connect_started_at = time.monotonic()
+            disconnect_notice = yield {"type": "await_disconnect"}
+            close_type = self._classify_stream_close(disconnect_notice)
+
+            if close_type == StreamCloseType.CLEAN:
+                logger.info(
+                    "kalshi_market_data_disconnect_clean",
+                    extra={"event": "disconnect", "classification": close_type.value},
+                )
+                return
+
+            if close_type == StreamCloseType.AUTH_FAILURE:
+                if health_state != StreamHealthState.DEGRADED:
+                    health_state = StreamHealthState.DEGRADED
+                    yield self._build_health_event(
+                        health_state=health_state,
+                        reason="auth_failure",
+                        attempt=consecutive_failures + 1,
+                    )
+                logger.error(
+                    "kalshi_market_data_disconnect_auth_failure",
+                    extra={"event": "disconnect", "classification": close_type.value},
+                )
+                return
+
+            now = time.monotonic()
+            uptime = now - connect_started_at
+            reconnect_config = self._config.stream_reconnect
+            if uptime >= reconnect_config.stable_connect_seconds:
+                consecutive_failures = 0
+                retry_started_at = None
+
+            if retry_started_at is None:
+                retry_started_at = now
+            consecutive_failures += 1
+
+            if now - retry_started_at > reconnect_config.max_retry_window_seconds:
+                logger.error(
+                    "kalshi_market_data_retry_window_exhausted",
+                    extra={"event": "disconnect", "attempt": consecutive_failures},
+                )
+                if health_state != StreamHealthState.DEGRADED:
+                    health_state = StreamHealthState.DEGRADED
+                    yield self._build_health_event(
+                        health_state=health_state,
+                        reason="max_retry_window_reached",
+                        attempt=consecutive_failures,
+                    )
+                return
+
+            if consecutive_failures >= reconnect_config.degraded_after_attempts and health_state != StreamHealthState.DEGRADED:
+                health_state = StreamHealthState.DEGRADED
+                yield self._build_health_event(
+                    health_state=health_state,
+                    reason="repeated_disconnects",
+                    attempt=consecutive_failures,
+                )
+
+            backoff_seconds = self._compute_stream_backoff_seconds(consecutive_failures)
+            logger.warning(
+                "kalshi_market_data_reconnect_scheduled",
+                extra={
+                    "event": "reconnect_scheduled",
+                    "attempt": consecutive_failures,
+                    "backoff_ms": int(backoff_seconds * 1000),
+                    "classification": close_type.value,
+                },
+            )
+            yield {
+                "type": "reconnect_scheduled",
+                "attempt": consecutive_failures,
+                "backoff_seconds": backoff_seconds,
+                "close_type": close_type.value,
+            }
+
+            recovered = yield {"type": "sleep", "seconds": backoff_seconds}
+            if recovered and recovered.get("stable_connect"):
+                consecutive_failures = 0
+                retry_started_at = None
+                if health_state != StreamHealthState.HEALTHY:
+                    health_state = StreamHealthState.HEALTHY
+                    yield self._build_health_event(
+                        health_state=health_state,
+                        reason="stable_connection_restored",
+                        attempt=0,
+                    )
+
+
+    def _is_supported_channel(self, channel: str) -> bool:
+        if channel not in self.SUPPORTED_MARKET_DATA_CHANNELS:
+            logger.warning(
+                "kalshi_market_data_unsupported_channel",
+                extra={"event": "subscribe", "channel": channel},
+            )
+            return False
+        return True
+
+    @staticmethod
+    def _classify_stream_close(disconnect_notice: Mapping[str, Any] | None) -> StreamCloseType:
+        if not disconnect_notice:
+            return StreamCloseType.TRANSIENT_FAILURE
+
+        if disconnect_notice.get("clean") is True:
+            return StreamCloseType.CLEAN
+
+        status_code = disconnect_notice.get("status_code")
+        if status_code in {401, 403}:
+            return StreamCloseType.AUTH_FAILURE
+
+        reason = str(disconnect_notice.get("reason") or "").lower()
+        if "auth" in reason or "credential" in reason or "token" in reason:
+            return StreamCloseType.AUTH_FAILURE
+
+        return StreamCloseType.TRANSIENT_FAILURE
+
+    def _compute_stream_backoff_seconds(self, attempt: int) -> float:
+        reconnect_config = self._config.stream_reconnect
+        exponential = reconnect_config.base_backoff_seconds * (2 ** max(0, attempt - 1))
+        clamped = min(exponential, reconnect_config.max_backoff_seconds)
+        jitter_range = clamped * reconnect_config.jitter_ratio
+        return max(0.0, clamped + random.uniform(-jitter_range, jitter_range))
+
+    @staticmethod
+    def _build_health_event(*, health_state: StreamHealthState, reason: str, attempt: int) -> dict[str, Any]:
+        return {
+            "type": "health_state",
+            "state": health_state.value,
+            "reason": reason,
+            "attempt": attempt,
+        }
 
     async def process_market_data_message(self, raw_message: Mapping[str, Any]) -> list[dict[str, Any]]:
         """Normalize channel messages and publish to internal event bus."""
