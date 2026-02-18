@@ -7,12 +7,13 @@ from typing import Any
 
 from connectors.kalshi.bus import InMemoryEventBus
 from connectors.kalshi.client import HttpResponse, KalshiAuthSigner, KalshiClient, SimpleHttpSession
-from connectors.kalshi.config import KalshiConfig, StreamReconnectConfig
+from connectors.kalshi.config import KalshiConfig, RateLimitConfig, RetryConfig, StreamReconnectConfig
 from connectors.kalshi.errors import ConnectorErrorCode
 from connectors.kalshi.models import (
     OrderLifecycleStatus,
     PlaceOrderRequest,
 )
+from connectors.kalshi.rate_limit import RateLimitBucket, SharedRateLimiter, get_shared_rate_limiter
 
 
 class DummySession(SimpleHttpSession):
@@ -34,16 +35,22 @@ def _build_client(
     bus: InMemoryEventBus | None = None,
     reconnect_config: StreamReconnectConfig | None = None,
     session: DummySession | None = None,
+    rate_limit_config: RateLimitConfig | None = None,
+    retry_config: RetryConfig | None = None,
+    rate_limiter: SharedRateLimiter | None = None,
 ) -> KalshiClient:
     return KalshiClient(
         config=KalshiConfig(
             api_key_id="k",
             api_key_secret="s",
+            retry=retry_config or RetryConfig(),
             stream_reconnect=reconnect_config or StreamReconnectConfig(),
+            rate_limit=rate_limit_config or RateLimitConfig(),
         ),
         auth_signer=KalshiAuthSigner(api_key_id="k", api_key_secret="s"),
         session=session or DummySession(),
         event_publisher=bus,
+        rate_limiter=rate_limiter,
     )
 
 
@@ -279,3 +286,53 @@ def test_schema_validation_errors_are_mapped() -> None:
         assert getattr(exc, "code", None) == ConnectorErrorCode.SCHEMA_VALIDATION
     else:
         raise AssertionError("expected schema validation error")
+
+
+def test_rest_write_requests_can_be_dropped_by_rate_limiter() -> None:
+    session = DummySession(responses=[{"payload": {}}, {"payload": {}}])
+    client = _build_client(
+        session=session,
+        rate_limiter=SharedRateLimiter(
+            RateLimitConfig(read_requests_per_second=50, write_requests_per_second=1, wait_timeout_seconds=0.0)
+        ),
+        retry_config=RetryConfig(max_attempts=1, backoff_seconds=0.0),
+    )
+
+    client.cancel_order("o-1")
+
+    try:
+        client.cancel_order("o-2")
+    except Exception as exc:  # noqa: BLE001
+        assert getattr(exc, "code", None) == ConnectorErrorCode.RATE_LIMITED
+    else:
+        raise AssertionError("expected rate limited error")
+
+
+def test_shared_rate_limiter_instance_is_reused() -> None:
+    first = get_shared_rate_limiter(
+        RateLimitConfig(
+            read_requests_per_second=1,
+            write_requests_per_second=1,
+            wait_timeout_seconds=1.1,
+        )
+    )
+    second = get_shared_rate_limiter(RateLimitConfig(read_requests_per_second=20, write_requests_per_second=10))
+
+    assert first is second
+
+
+def test_rate_limiter_tracks_throttled_and_dropped_metrics() -> None:
+    limiter = SharedRateLimiter(
+        RateLimitConfig(read_requests_per_second=1, write_requests_per_second=1, wait_timeout_seconds=1.1)
+    )
+    limiter.acquire(bucket=RateLimitBucket.READ, operation="test-prime")
+    limiter.acquire(bucket=RateLimitBucket.READ, operation="test-throttle")
+    limiter.configure(RateLimitConfig(read_requests_per_second=1, write_requests_per_second=1, wait_timeout_seconds=0.0))
+    try:
+        limiter.acquire(bucket=RateLimitBucket.READ, operation="test-drop")
+    except Exception:
+        pass
+
+    metrics = limiter.metrics_snapshot()
+    assert metrics.throttled_requests >= 1
+    assert metrics.dropped_requests >= 1

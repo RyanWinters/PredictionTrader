@@ -29,6 +29,7 @@ from .models import (
     PortfolioBalance,
     ValidationError,
 )
+from .rate_limit import RateLimitBucket, SharedRateLimiter, get_shared_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -124,11 +125,13 @@ class KalshiClient(MarketDataStream, OrderExecutionClient, AccountReadClient):
         auth_signer: KalshiAuthSigner,
         session: SimpleHttpSession,
         event_publisher: EventPublisher | None = None,
+        rate_limiter: SharedRateLimiter | None = None,
     ) -> None:
         self._config = config
         self._auth_signer = auth_signer
         self._session = session
         self._event_publisher = event_publisher
+        self._rate_limiter = rate_limiter or get_shared_rate_limiter(config.rate_limit)
 
     def _request(
         self,
@@ -151,6 +154,8 @@ class KalshiClient(MarketDataStream, OrderExecutionClient, AccountReadClient):
         while True:
             attempts += 1
             try:
+                bucket = RateLimitBucket.READ if method.upper() == "GET" else RateLimitBucket.WRITE
+                self._rate_limiter.acquire(bucket, operation=f"rest:{method.upper()}:{path}")
                 response = self._session.request(
                     method=method,
                     url=url,
@@ -222,6 +227,10 @@ class KalshiClient(MarketDataStream, OrderExecutionClient, AccountReadClient):
         health_state = StreamHealthState.HEALTHY
 
         while True:
+            try:
+                await self._rate_limiter.acquire_async(RateLimitBucket.READ, operation="ws:connect")
+            except Exception as exc:
+                raise map_kalshi_error(exc) from exc
             logger.info(
                 "kalshi_market_data_connect",
                 extra={"event": "connect", "url": self._config.websocket_url, "channels": subscribed_channels},
@@ -233,6 +242,10 @@ class KalshiClient(MarketDataStream, OrderExecutionClient, AccountReadClient):
             }
 
             for channel in subscribed_channels:
+                try:
+                    await self._rate_limiter.acquire_async(RateLimitBucket.WRITE, operation=f"ws:subscribe:{channel}")
+                except Exception as exc:
+                    raise map_kalshi_error(exc) from exc
                 logger.info(
                     "kalshi_market_data_subscribe",
                     extra={"event": "subscribe", "channel": channel},
