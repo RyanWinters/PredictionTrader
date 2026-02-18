@@ -27,6 +27,15 @@ class StreamReconnectConfig:
 
 
 @dataclass(frozen=True)
+class RateLimitConfig:
+    """Rate-limiter controls for connector reads/writes."""
+
+    read_requests_per_second: float = 20.0
+    write_requests_per_second: float = 10.0
+    wait_timeout_seconds: float = 0.25
+
+
+@dataclass(frozen=True)
 class KalshiConfig:
     """Centralized connector configuration."""
 
@@ -37,6 +46,7 @@ class KalshiConfig:
     timeout_seconds: float = 10.0
     retry: RetryConfig = RetryConfig()
     stream_reconnect: StreamReconnectConfig = StreamReconnectConfig()
+    rate_limit: RateLimitConfig = RateLimitConfig()
 
     @classmethod
     def from_env(cls) -> "KalshiConfig":
@@ -51,6 +61,11 @@ class KalshiConfig:
             retry=RetryConfig(
                 max_attempts=int(getenv("KALSHI_RETRY_MAX_ATTEMPTS", "3")),
                 backoff_seconds=float(getenv("KALSHI_RETRY_BACKOFF_SECONDS", "0.5")),
+            ),
+            rate_limit=RateLimitConfig(
+                read_requests_per_second=float(getenv("KALSHI_RATE_LIMIT_READ_RPS", "20.0")),
+                write_requests_per_second=float(getenv("KALSHI_RATE_LIMIT_WRITE_RPS", "10.0")),
+                wait_timeout_seconds=float(getenv("KALSHI_RATE_LIMIT_WAIT_TIMEOUT_SECONDS", "0.25")),
             ),
             stream_reconnect=StreamReconnectConfig(
                 base_backoff_seconds=float(getenv("KALSHI_STREAM_RETRY_BASE_BACKOFF_SECONDS", "0.5")),
