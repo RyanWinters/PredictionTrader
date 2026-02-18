@@ -129,6 +129,8 @@ Goal: implement strategies and attach them to safe, external sentiment signals.
 - **Task 2.2.1:** Implement "Volatility Rider" and "Hype-Fade" logic.
 - **Task 2.2.2:** Train in cloud, export `.tflite`, bundle for local inference.
 
+Implementation note: we are currently executing Milestone 2 with a **local-first training path** and optional later cloud migration. See `docs/milestone-2-local-first-guide.md`.
+
 ## Milestone 3: End-user experience and security
 
 Goal: make operation safer, clearer, and self-contained for end users.
