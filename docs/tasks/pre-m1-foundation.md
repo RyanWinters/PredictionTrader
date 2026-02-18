@@ -79,7 +79,7 @@ This task set creates a production-shaped layout so Milestone 1 implementation c
 You can begin Milestone 1 only when all criteria are met:
 
 - [x] Process lifecycle contract is documented and agreed.
-- [ ] Secret handoff path is defined and tested in a minimal prototype.
+- [x] Secret handoff path is defined and tested in a minimal prototype.
 - [x] Shared event contracts are versioned.
 - [x] SQLite base schema + write queue design is finalized.
 - [x] Demo/live safety policy is documented.
