@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .bus import InMemoryEventBus
 from .client import KalshiAuthSigner, KalshiClient, KalshiSessionFactory
 from .config import KalshiConfig
 from .interfaces import AccountReadClient, MarketDataStream, OrderExecutionClient
@@ -27,6 +28,11 @@ def build_kalshi_dependencies(config: KalshiConfig | None = None) -> KalshiDepen
         api_key_secret=resolved_config.api_key_secret,
     )
     session = KalshiSessionFactory(resolved_config).create_http_session()
-    client = KalshiClient(config=resolved_config, auth_signer=signer, session=session)
+    client = KalshiClient(
+        config=resolved_config,
+        auth_signer=signer,
+        session=session,
+        event_publisher=InMemoryEventBus(),
+    )
 
     return KalshiDependencies(market_data=client, orders=client, account=client)

@@ -11,6 +11,16 @@ class MarketDataStream(Protocol):
     async def stream_market_data(self, channels: list[str]) -> AsyncIterator[dict[str, Any]]:
         """Yield messages for the requested channels."""
 
+    async def process_market_data_message(self, raw_message: Mapping[str, Any]) -> list[dict[str, Any]]:
+        """Normalize and publish websocket messages, returning canonical events."""
+
+
+class EventPublisher(Protocol):
+    """Publishes normalized events to internal bus/queue consumers."""
+
+    async def publish(self, event: Mapping[str, Any]) -> None:
+        """Publish one normalized event envelope."""
+
 
 class OrderExecutionClient(Protocol):
     """Places and manages orders."""
