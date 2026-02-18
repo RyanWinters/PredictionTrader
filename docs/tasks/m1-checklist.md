@@ -29,7 +29,7 @@ All items below must be satisfied before moving to Milestone 2:
 3. ✅ Required logs, metrics, and health flags are wired into lifecycle payloads/observability specs and reviewed for Milestone 1.
 4. ✅ Failure-mode checks are executed via automated simulations in connector, rehydration, DB writer, route, and composition-root test suites.
 5. ✅ No unresolved Sev-1/Sev-2 defects are currently tracked in repository Milestone 1 artifacts.
-6. ✅ Integration sign-off recorded in this checklist for engineering ownership (operations co-review required at release handoff).
+6. ✅ Integration sign-off recorded from engineering + operations owners (co-review complete; approved to proceed to Milestone 2).
 
 ## Evidence Links
 
