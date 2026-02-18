@@ -54,6 +54,38 @@ You should have:
 
 If your machine is modest, that's okay. Training may be slower, but still valid.
 
+## Step 0.5 — Generate and upload your local coding setup report (when starting Step 3)
+
+When you are ready to begin **Step 3 (local training)**, run this script from the repo root.
+
+Milestone-task mapping (explicit):
+
+- **Do this after Milestone 2.1 is complete** (pipeline/client/stale-signal logic done).
+- **Do this after 2.2.1 strategy logic is in place.**
+- **Do this right before your first local training run** (the start of this guide's Step 3).
+
+This means it is **not** a 2.1.2 task; it is a **pre-flight check before training**.
+
+
+```bash
+python scripts/collect_local_setup.py
+```
+
+What it does:
+
+- Checks key local coding/training tools (Python, pip, git, node, npm, pnpm, docker).
+- Checks Python packages commonly needed for Milestone 2 training (`tensorflow`, `numpy`, etc.).
+- Writes a markdown report to:
+  - `docs/artifacts/milestone2-local-setup.md`
+
+Your exact handoff workflow:
+
+1. Run the script.
+2. Commit the generated file to your branch.
+3. Push to Git so we can review exactly what is installed/missing on your machine.
+
+This keeps setup super simple: one `.py` command, one generated file, one upload target.
+
 ## Step 1 — Build Milestone 2.1 components first
 
 Complete these first because they feed training:
