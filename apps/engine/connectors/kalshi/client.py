@@ -212,6 +212,9 @@ class KalshiClient(MarketDataStream, OrderExecutionClient, AccountReadClient):
         except (ValueError, TypeError) as exc:
             raise map_kalshi_error(ValidationError(str(exc))) from exc
 
+    def get_open_orders(self) -> dict[str, Any]:
+        return self._request("GET", "/portfolio/orders?status=open")
+
     def get_positions(self) -> dict[str, Any]:
         return self._request("GET", "/portfolio/positions")
 

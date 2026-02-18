@@ -278,6 +278,16 @@ def test_order_query_cancel_and_balance_models() -> None:
     assert balance.available_balance == 900
 
 
+
+def test_get_open_orders_uses_open_status_query() -> None:
+    session = DummySession(responses=[{"payload": {"orders": []}}])
+    client = _build_client(session=session)
+
+    payload = client.get_open_orders()
+
+    assert payload == {"orders": []}
+    assert session.requests[0]["url"].endswith("/portfolio/orders?status=open")
+
 def test_schema_validation_errors_are_mapped() -> None:
     client = _build_client()
     try:

@@ -49,5 +49,8 @@ class AccountReadClient(Protocol):
     def get_balance(self) -> PortfolioBalance:
         """Read account balance snapshot."""
 
+    def get_open_orders(self) -> dict[str, Any]:
+        """Read open orders snapshot."""
+
     def get_positions(self) -> dict[str, Any]:
         """Read open positions snapshot."""
