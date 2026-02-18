@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterator, Mapping, Protocol
 
+from .models import (
+    CancelOrderResponse,
+    OrderDetails,
+    PlaceOrderRequest,
+    PlaceOrderResponse,
+    PortfolioBalance,
+)
+
 
 class MarketDataStream(Protocol):
     """Consumes real-time market data updates."""
@@ -25,17 +33,20 @@ class EventPublisher(Protocol):
 class OrderExecutionClient(Protocol):
     """Places and manages orders."""
 
-    def place_order(self, order_payload: Mapping[str, Any]) -> dict[str, Any]:
+    def place_order(self, order: PlaceOrderRequest) -> PlaceOrderResponse:
         """Submit a new order."""
 
-    def cancel_order(self, order_id: str) -> dict[str, Any]:
+    def cancel_order(self, order_id: str) -> CancelOrderResponse:
         """Cancel an open order."""
+
+    def get_order(self, order_id: str) -> OrderDetails:
+        """Fetch an order by id."""
 
 
 class AccountReadClient(Protocol):
     """Reads account state from Kalshi."""
 
-    def get_balance(self) -> dict[str, Any]:
+    def get_balance(self) -> PortfolioBalance:
         """Read account balance snapshot."""
 
     def get_positions(self) -> dict[str, Any]:

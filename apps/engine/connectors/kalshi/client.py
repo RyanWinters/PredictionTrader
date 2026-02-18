@@ -21,6 +21,14 @@ from urllib.request import Request, urlopen
 from .config import KalshiConfig
 from .errors import ConnectorErrorCode, map_kalshi_error
 from .interfaces import AccountReadClient, EventPublisher, MarketDataStream, OrderExecutionClient
+from .models import (
+    CancelOrderResponse,
+    OrderDetails,
+    PlaceOrderRequest,
+    PlaceOrderResponse,
+    PortfolioBalance,
+    ValidationError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -122,13 +130,22 @@ class KalshiClient(MarketDataStream, OrderExecutionClient, AccountReadClient):
         self._session = session
         self._event_publisher = event_publisher
 
-    def _request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        payload: Mapping[str, Any] | None = None,
+        *,
+        extra_headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
         url = urljoin(f"{self._config.base_url}/", path.lstrip("/"))
         body = json.dumps(dict(payload or {}), separators=(",", ":")) if payload else ""
         headers = {
             "Content-Type": "application/json",
             **self._auth_signer.signed_headers(method=method, path=path, body=body),
         }
+        if extra_headers:
+            headers.update(extra_headers)
 
         attempts = 0
         while True:
@@ -155,14 +172,40 @@ class KalshiClient(MarketDataStream, OrderExecutionClient, AccountReadClient):
                     raise mapped from exc
                 time.sleep(self._config.retry.backoff_seconds * attempts)
 
-    def place_order(self, order_payload: Mapping[str, Any]) -> dict[str, Any]:
-        return self._request("POST", "/portfolio/orders", order_payload)
+    def place_order(self, order: PlaceOrderRequest | Mapping[str, Any]) -> PlaceOrderResponse:
+        try:
+            request_model = order if isinstance(order, PlaceOrderRequest) else PlaceOrderRequest.from_mapping(order)
+            response = self._request(
+                "POST",
+                "/portfolio/orders",
+                request_model.to_exchange_payload(),
+                extra_headers={"Idempotency-Key": request_model.idempotency_key} if request_model.idempotency_key else None,
+            )
+            return PlaceOrderResponse.from_exchange(response)
+        except (ValueError, TypeError) as exc:
+            raise map_kalshi_error(ValidationError(str(exc))) from exc
 
-    def cancel_order(self, order_id: str) -> dict[str, Any]:
-        return self._request("DELETE", f"/portfolio/orders/{order_id}")
+    def cancel_order(self, order_id: str) -> CancelOrderResponse:
+        response = self._request("DELETE", f"/portfolio/orders/{order_id}")
+        try:
+            return CancelOrderResponse.from_exchange(response, fallback_order_id=order_id)
+        except (ValueError, TypeError) as exc:
+            raise map_kalshi_error(ValidationError(str(exc))) from exc
 
-    def get_balance(self) -> dict[str, Any]:
-        return self._request("GET", "/portfolio/balance")
+    def get_order(self, order_id: str) -> OrderDetails:
+        response = self._request("GET", f"/portfolio/orders/{order_id}")
+        try:
+            order_payload = response.get("order") if isinstance(response.get("order"), Mapping) else response
+            return OrderDetails.from_exchange(order_payload)
+        except (ValueError, TypeError) as exc:
+            raise map_kalshi_error(ValidationError(str(exc))) from exc
+
+    def get_balance(self) -> PortfolioBalance:
+        response = self._request("GET", "/portfolio/balance")
+        try:
+            return PortfolioBalance.from_exchange(response)
+        except (ValueError, TypeError) as exc:
+            raise map_kalshi_error(ValidationError(str(exc))) from exc
 
     def get_positions(self) -> dict[str, Any]:
         return self._request("GET", "/portfolio/positions")
