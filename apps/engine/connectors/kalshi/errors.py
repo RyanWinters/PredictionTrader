@@ -14,6 +14,7 @@ class ConnectorErrorCode(str, Enum):
     NETWORK_ERROR = "network_error"
     TIMEOUT = "timeout"
     BAD_REQUEST = "bad_request"
+    SCHEMA_VALIDATION = "schema_validation"
     REMOTE_ERROR = "remote_error"
     UNKNOWN = "unknown"
 
@@ -58,5 +59,8 @@ def map_kalshi_error(error: Exception | Any) -> ConnectorError:
         return ConnectorError(ConnectorErrorCode.NETWORK_ERROR, message, cause=error)
     if status_code and int(status_code) >= 500:
         return ConnectorError(ConnectorErrorCode.REMOTE_ERROR, message, cause=error)
+
+    if isinstance(error, ValueError):
+        return ConnectorError(ConnectorErrorCode.SCHEMA_VALIDATION, message, cause=error)
 
     return ConnectorError(ConnectorErrorCode.UNKNOWN, message, cause=error)

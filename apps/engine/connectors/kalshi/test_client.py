@@ -1,19 +1,39 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from collections.abc import Mapping
+from typing import Any
 
 from connectors.kalshi.bus import InMemoryEventBus
-from connectors.kalshi.client import KalshiAuthSigner, KalshiClient, SimpleHttpSession
+from connectors.kalshi.client import HttpResponse, KalshiAuthSigner, KalshiClient, SimpleHttpSession
 from connectors.kalshi.config import KalshiConfig, StreamReconnectConfig
+from connectors.kalshi.errors import ConnectorErrorCode
+from connectors.kalshi.models import (
+    OrderLifecycleStatus,
+    PlaceOrderRequest,
+)
 
 
 class DummySession(SimpleHttpSession):
-    pass
+    def __init__(self, responses: list[dict[str, Any]] | None = None):
+        self.responses = responses or []
+        self.requests: list[dict[str, Any]] = []
+
+    def request(self, *, method: str, url: str, data: str | None, headers: Mapping[str, str], timeout: float) -> HttpResponse:
+        self.requests.append({"method": method, "url": url, "data": data, "headers": dict(headers), "timeout": timeout})
+        if not self.responses:
+            return HttpResponse(200, b"{}")
+        response = self.responses.pop(0)
+        status = int(response.get("status_code", 200))
+        payload = response.get("payload", {})
+        return HttpResponse(status_code=status, body=json.dumps(payload).encode("utf-8"))
 
 
 def _build_client(
     bus: InMemoryEventBus | None = None,
     reconnect_config: StreamReconnectConfig | None = None,
+    session: DummySession | None = None,
 ) -> KalshiClient:
     return KalshiClient(
         config=KalshiConfig(
@@ -22,7 +42,7 @@ def _build_client(
             stream_reconnect=reconnect_config or StreamReconnectConfig(),
         ),
         auth_signer=KalshiAuthSigner(api_key_id="k", api_key_secret="s"),
-        session=DummySession(),
+        session=session or DummySession(),
         event_publisher=bus,
     )
 
@@ -181,3 +201,81 @@ def test_process_trade_normalizes_and_publishes() -> None:
     assert published["schema"] == "trade"
     assert published["source_sequence"] == 99
     assert published["payload"]["trade_id"] == "t-1"
+
+
+def test_place_order_validates_and_adds_idempotency_header() -> None:
+    session = DummySession(
+        responses=[
+            {
+                "payload": {
+                    "order": {
+                        "order_id": "o-123",
+                        "ticker": "KXTEST",
+                        "side": "yes",
+                        "action": "buy",
+                        "count": 10,
+                        "filled_count": 0,
+                        "status": "queued",
+                    }
+                }
+            }
+        ]
+    )
+    client = _build_client(session=session)
+    response = client.place_order(
+        PlaceOrderRequest(
+            market_id="KXTEST",
+            side="yes",
+            action="buy",
+            count=10,
+            yes_price=45,
+            idempotency_key="idem-1",
+        )
+    )
+
+    assert response.order.order_id == "o-123"
+    assert response.order.lifecycle_status == OrderLifecycleStatus.PENDING
+    assert session.requests[0]["headers"]["Idempotency-Key"] == "idem-1"
+
+
+def test_order_query_cancel_and_balance_models() -> None:
+    session = DummySession(
+        responses=[
+            {
+                "payload": {
+                    "order": {
+                        "id": "o-456",
+                        "market_id": "KXTEST",
+                        "side": "no",
+                        "action": "sell",
+                        "quantity": 4,
+                        "filled_quantity": 2,
+                        "status": "partially_filled",
+                    }
+                }
+            },
+            {"payload": {"status": "cancelled"}},
+            {"payload": {"balance": {"cash": 1200, "available": 900}}},
+        ]
+    )
+    client = _build_client(session=session)
+
+    order = client.get_order("o-456")
+    canceled = client.cancel_order("o-456")
+    balance = client.get_balance()
+
+    assert order.lifecycle_status == OrderLifecycleStatus.PARTIALLY_FILLED
+    assert canceled.lifecycle_status == OrderLifecycleStatus.CANCELED
+    assert canceled.order_id == "o-456"
+    assert balance.cash_balance == 1200
+    assert balance.available_balance == 900
+
+
+def test_schema_validation_errors_are_mapped() -> None:
+    client = _build_client()
+    try:
+        client.place_order({"market_id": "KXTEST", "side": "yes", "action": "buy", "count": 1})
+    except Exception as exc:  # noqa: BLE001
+        assert getattr(exc, "code", None) == ConnectorErrorCode.SCHEMA_VALIDATION
+    else:
+        raise AssertionError("expected schema validation error")
